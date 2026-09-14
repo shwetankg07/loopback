@@ -1,0 +1,43 @@
+<!-- Throwaway spike: bisect the Java loop guard against the real public/java-frame.html. ?v=clock|noexit|exit|catch -->
+<iframe id="f" src="/java-frame.html" style="display:none"></iframe>
+<script type="module">
+  const results = (window.__results = { log: [] });
+  const f = document.getElementById("f");
+  const t0 = performance.now();
+  const log = (m) => { results.log.push(`${Math.round(performance.now() - t0)}ms ${m}`); console.log(m); };
+  let seq = 0;
+  const call = (msg, ms = 60000) => new Promise((res) => {
+    const id = ++seq;
+    const on = (e) => { if (e.data?.id === id) { removeEventListener("message", on); res(e.data); } };
+    addEventListener("message", on);
+    setTimeout(() => { removeEventListener("message", on); res("NO REPLY within " + ms + "ms"); }, ms);
+    f.contentWindow.postMessage({ id, ...msg }, location.origin);
+  });
+  await new Promise((r) => addEventListener("message", function on(e) { if (e.data?.ready) { removeEventListener("message", on); r(); } }));
+  log("frame ready");
+
+  const v = new URLSearchParams(location.search).get("v");
+  const base = (extra) => `import java.util.*;
+public class Main { public static void main(String[] args) { Scanner in = new Scanner(System.in); String s = in.next();
+  if (s.equals("while")) while (true) {}
+  ${extra}
+  System.out.println(Long.parseLong(s) + in.nextLong()); } }`;
+  const CLOCK = `public class Main { public static void main(String[] a) {
+  long m0 = System.currentTimeMillis(), n0 = System.nanoTime(); int changes = 0; long last = m0;
+  for (int i = 0; i < 300000000; i++) { if ((i & 0xFFFFF) == 0) { long m = System.currentTimeMillis(); if (m != last) { changes++; last = m; } } }
+  System.out.println("finished loop: ms " + (System.currentTimeMillis() - m0) + " nano " + (System.nanoTime() - n0) / 1000000 + " changes " + changes);
+} }`;
+  const code = v === "clock" ? CLOCK
+    : v === "exit" ? base(`if (s.equals("exit")) { System.out.println("bye"); System.exit(0); }`)
+    : v === "catch" ? base(`if (s.equals("catch")) while (true) { try { while (true) {} } catch (Throwable t) {} }`)
+    : base("");
+  log(`compile -> ${JSON.stringify(await call({ op: "compile", code })).slice(0, 400)}`);
+  if (v === "clock") {
+    log(`run (3s limit) -> ${JSON.stringify(await call({ op: "run", stdin: "", limit: 1e6, timeoutMs: 3000 }, 90000)).slice(0, 400)}`);
+  } else {
+    log(`run "2 3" -> ${JSON.stringify(await call({ op: "run", stdin: "2 3\n", limit: 1e6, timeoutMs: 3000 })).slice(0, 300)}`);
+    log(`run "while" (3s limit) -> ${JSON.stringify(await call({ op: "run", stdin: "while\n", limit: 1e6, timeoutMs: 3000 }, 40000)).slice(0, 300)}`);
+    if (v !== "noexit") log(`run "${v}" -> ${JSON.stringify(await call({ op: "run", stdin: v + "\n", limit: 1e6, timeoutMs: 3000 }, 40000)).slice(0, 300)}`);
+  }
+  window.__done = true;
+</script>

@@ -14,6 +14,24 @@ type Msg =
 
 let runClang: any
 
+// Static hosts like Cloudflare Pages cap files at 25 MB, so the two big clang files ship gzipped (73 MB -> 22 MB,
+// 29 MB -> 4 MB) and are inflated here. Must run before bundle.js is imported: it captures fetch at load time.
+const realFetch = fetch
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = input instanceof Request ? input.url : String(input)
+  if (!/\/clang\/(llvm\.core\.wasm|llvm-resources\.tar)$/.test(url)) return realFetch(input, init)
+  const res = await realFetch(url + '.gz', init)
+  if (!res.ok || !res.body) return res
+  // If the host already decoded it (Content-Encoding: gzip), the bytes won't start with the gzip magic number.
+  const [probe, body] = res.body.tee()
+  const reader = probe.getReader()
+  const { value } = await reader.read()
+  reader.cancel()
+  const gzipped = value?.[0] === 0x1f && value?.[1] === 0x8b
+  const type = url.endsWith('.wasm') ? 'application/wasm' : 'application/x-tar'
+  return new Response(gzipped ? body.pipeThrough(new DecompressionStream('gzip')) : body, { headers: { 'Content-Type': type } })
+}
+
 onmessage = async ({ data }: MessageEvent<Msg>) => {
   postMessage(data.op === 'compile' ? await compile(data.vendor, data.code) : await run(data.module, data.stdin, data.limit))
 }

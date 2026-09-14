@@ -51,6 +51,16 @@ All measured in headless Chromium 151 / Firefox 153 on this machine. Throwaway c
 - The `bits/stdc++.h` shim must leave out `<csetjmp>` and `<csignal>`; WASI rejects both.
 - `System.exit` fix: rewrite `System.exit(` to `Harness.exit(`, which throws an `Error` the harness catches.
 
+## 2026-09-15: no second domain needed
+- Replaced cross-site isolation with a **loop guard**. `java/loopback/Compile.java` drives javac through its API and, right after parsing, rewrites every loop body to `{ loopback.Guard.tick(); body }` and `System.exit(x)` to `Guard.exit(x)`.
+- `tick()` reads the clock every 16k iterations. Once expired, every call throws, so a `catch (Throwable)` around an inner loop can't swallow it.
+- Verified: `while`, `for(;;);`, `do/while` and catch-wrapped loops all stop at the limit.
+- Overhead: 300M guarded iterations took 1.6s.
+- Trade-off: the tab is busy for up to the time limit while Java runs. Works in every browser, including Firefox.
+- Helper classes ship prebuilt in `public/java-harness.jar` (`npm run build:java`, JDK 9+ with `--release 8`).
+- A cold Java start is network-bound (CheerpJ loads its JDK runtime from its CDN). The driver compile itself takes 1–2s.
+- Hosting: `llvm.core.wasm` (73MB) and `llvm-resources.tar` (29MB) ship gzipped (22MB, 4MB) and are inflated in the compile worker. Every file now fits under Cloudflare's 25MB limit.
+
 ## Build status 2026-09-14
 Phases 1–3 are done and verified. All three open items below are closed.
 - `npm test`: 2 pass.

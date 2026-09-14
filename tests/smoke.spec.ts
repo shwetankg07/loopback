@@ -57,6 +57,35 @@ for (const lang of ['cpp', 'java', 'python'] as const) {
     await expect(page.locator('#status')).toHaveText(/Ran 4 tests\. 2 of 3 accepted\./)
   })
 
+  if (lang === 'java') {
+    test('java: every kind of stuck loop stops at the time limit, and System.exit works', async ({ page }) => {
+      await open(page, 'java', `import java.util.*;
+public class Main {
+    public static void main(String[] args) {
+        Scanner in = new Scanner(System.in);
+        String s = in.next();
+        if (s.equals("while")) while (true) {}
+        if (s.equals("for")) for (;;);
+        if (s.equals("do")) do {} while (true);
+        if (s.equals("catch")) while (true) { try { while (true) {} } catch (Throwable t) {} }
+        if (s.equals("exit")) { System.out.println("bye"); System.exit(0); }
+        System.out.println(Long.parseLong(s) + in.nextLong());
+    }
+}`, [
+        { input: 'while\n', expected: '' },
+        { input: 'for\n', expected: '' },
+        { input: 'do\n', expected: '' },
+        { input: 'catch\n', expected: '' },
+        { input: 'exit\n', expected: 'bye\n' },
+        { input: '7 8\n', expected: '15\n' },
+      ])
+      await page.getByRole('button', { name: 'Run all tests' }).click()
+      for (const i of [0, 1, 2, 3]) await expect(verdict(page, i)).toHaveText('Time limit exceeded')
+      await expect(verdict(page, 4)).toHaveText('Accepted')
+      await expect(verdict(page, 5)).toHaveText('Accepted')
+    })
+  }
+
   test(`${lang}: compile error is shown`, async ({ page }) => {
     await open(page, lang, PROGRAMS[lang].broken, [{ input: '1 1\n', expected: '2\n' }])
     await page.getByRole('button', { name: 'Run all tests' }).click()

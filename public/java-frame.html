@@ -1,57 +1,37 @@
 <!doctype html>
-<!-- Java runs here, in a cross-site iframe: CheerpJ executes on the main thread of its site, so an infinite
-     loop freezes this frame's process instead of the editor. The parent removes the frame on timeout. -->
+<!-- Java runs here on CheerpJ. CheerpJ executes Java on the page's main thread, so instead of isolating it we compile
+     every program through java/loopback/Compile.java, which puts a time check in each loop body. A stuck program
+     stops itself at the time limit. The helper classes ship prebuilt in java-harness.jar (npm run build:java). -->
 <meta charset="utf-8">
 <script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></script>
 <pre id="console" hidden></pre>
 <script type="module">
   const cons = document.getElementById("console");
-  const TOOLS = "/app" + new URL("vendor/java/tools.jar", document.baseURI).pathname;
-
-  // Loads each program through a fresh class loader (no stale classes between compiles), feeds stdin from a file,
-  // captures stdout to a file, and turns System.exit (rewritten to Harness.exit) into a catchable Error.
-  const HARNESS = `import java.io.*; import java.net.*;
-public class Harness {
-  public static class Exit extends Error { final int code; Exit(int c) { super(null, null, false, false); code = c; } }
-  public static void exit(int code) { throw new Exit(code); }
-  public static void main(String[] a) throws Exception {
-    if (a[0].equals("mkdir")) { new File(a[1]).mkdirs(); return; }
-    System.setIn(new BufferedInputStream(new FileInputStream("/str/stdin.txt")));
-    PrintStream realOut = System.out;
-    PrintStream out = new PrintStream(new BufferedOutputStream(new FileOutputStream("/files/stdout.txt"), 1 << 16), false);
-    System.setOut(out);
-    String status = "ok";
-    try {
-      ClassLoader cl = new URLClassLoader(new URL[]{ new File(a[1]).toURI().toURL() }, Harness.class.getClassLoader());
-      Class.forName(a[2], true, cl).getMethod("main", String[].class).invoke(null, (Object) new String[0]);
-    } catch (java.lang.reflect.InvocationTargetException e) {
-      Throwable c = e.getCause();
-      if (c instanceof Exit) { if (((Exit) c).code != 0) { status = "runtime_error"; System.err.println("Exit code " + ((Exit) c).code); } }
-      else { status = "runtime_error"; c.printStackTrace(); }
-    } finally { out.flush(); out.close(); System.setOut(realOut); }
-    FileOutputStream s = new FileOutputStream("/files/status.txt"); s.write(status.getBytes()); s.close();
-  }
-}`;
+  const app = (path) => "/app" + new URL(path, document.baseURI).pathname;
+  const TOOLS = app("vendor/java/tools.jar");
+  const HARNESS = app("java-harness.jar");
 
   const text = async (path) => { try { return await (await cjFileBlob(path)).text(); } catch { return ""; } };
   let dir = "", mainClass = "", seq = 0;
 
   async function compile(code) {
     const name = (code.match(/public\s+(?:final\s+)?class\s+(\w+)/) || code.match(/class\s+(\w+)[^{]*\{[\s\S]*?static\s+void\s+main\s*\(/) || [, "Main"])[1];
+    const pkg = (code.match(/^\s*package\s+([\w.]+)\s*;/m) || [])[1];
     dir = `/files/p${++seq}/`;
-    await cheerpjRunMain("Harness", "/files/", "mkdir", dir);
-    cheerpOSAddStringFile(`/str/${name}.java`, code.replace(/\bSystem\s*\.\s*exit\s*\(/g, "Harness.exit("));
+    await cheerpjRunMain("loopback.Harness", HARNESS, "mkdir", dir);
+    cheerpOSAddStringFile(`/str/${name}.java`, code);
     cons.textContent = "";
-    const exit = await cheerpjRunMain("com.sun.tools.javac.Main", `${TOOLS}:/files/`, `/str/${name}.java`, "-d", dir, "-nowarn");
-    mainClass = name;
-    return exit === 0 ? {} : { compileError: cons.textContent.replaceAll(`/str/${name}.java`, `${name}.java`).replaceAll("Harness.exit(", "System.exit(") || `javac exited with ${exit}` };
+    await cheerpjRunMain("loopback.Compile", `${TOOLS}:${HARNESS}`, `/str/${name}.java`, dir, HARNESS);
+    mainClass = pkg ? `${pkg}.${name}` : name;
+    if ((await text("/files/compile.txt")) === "ok") return {};
+    return { compileError: cons.textContent.replaceAll(`/str/${name}.java`, `${name}.java`) || "javac failed without a message" };
   }
 
-  async function run(stdin, limit) {
+  async function run(stdin, limit, timeoutMs) {
     cheerpOSAddStringFile("/str/stdin.txt", stdin);
     cons.textContent = "";
     const t = performance.now();
-    await cheerpjRunMain("Harness", "/files/", "run", dir, mainClass);
+    await cheerpjRunMain("loopback.Harness", HARNESS, "run", dir, mainClass, String(timeoutMs));
     const ms = performance.now() - t;
     let stdout = await text("/files/stdout.txt");
     let stderr = cons.textContent;
@@ -60,28 +40,24 @@ public class Harness {
     if (/ArithmeticException/.test(stderr) && (stderr.match(/\n\s*at /g) || []).length > 100) {
       stderr = "Stack overflow: recursion is too deep for the browser JVM (under 10k frames). Use an explicit stack.";
     } else {
-      stderr = stderr.split("\n").filter((l) => !/at (sun\.reflect|java\.lang\.reflect|Harness)/.test(l)).slice(0, 30).join("\n");
+      stderr = stderr.split("\n").filter((l) => !/at (sun\.reflect|java\.lang\.reflect|loopback\.)/.test(l)).slice(0, 30).join("\n");
     }
     if (stdout.length > limit) { stdout = stdout.slice(0, limit); stderr += "\nOutput limit exceeded (1 MB)"; status = "runtime_error"; }
     return { status, stdout, stderr, ms };
   }
 
-  const ready = (async () => {
-    await cheerpjInit({ version: 8, status: "none" });
-    cheerpOSAddStringFile("/str/Harness.java", HARNESS);
-    if (await cheerpjRunMain("com.sun.tools.javac.Main", `${TOOLS}:/files/`, "/str/Harness.java", "-d", "/files/") !== 0) throw new Error(cons.textContent);
-  })();
+  const ready = cheerpjInit({ version: 8, status: "none" });
 
   // ponytail: no origin allowlist — the frame only runs code in the visitor's own browser, which any site could already do with CheerpJ.
   let queue = Promise.resolve();
   addEventListener("message", (e) => {
     if (e.source !== parent) return;
-    const { id, op, code, stdin, limit } = e.data;
+    const { id, op, code, stdin, limit, timeoutMs } = e.data;
     queue = queue.then(async () => {
       let res;
       try {
         await ready;
-        res = op === "compile" ? await compile(code) : await run(stdin, limit);
+        res = op === "compile" ? await compile(code) : await run(stdin, limit, timeoutMs);
       } catch (err) {
         res = { crash: String(err?.message || err) };
       }

@@ -1,0 +1,21 @@
+<!-- Throwaway spike: why is the first Java compile slow? CLI javac vs the Compile driver. ?order=cli|driver (which goes first) -->
+<script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></script>
+<pre id="console" hidden></pre>
+<script type="module">
+  const results = (window.__results = {});
+  const app = (p) => "/app" + new URL(p, location.origin + "/").pathname;
+  const TOOLS = app("vendor/java/tools.jar"), HARNESS = app("java-harness.jar");
+  const order = new URLSearchParams(location.search).get("order") || "cli";
+  const time = async (label, fn) => { const t = performance.now(); const r = await fn(); results[label] = `${Math.round(performance.now() - t)}ms exit=${r}`; };
+  const src = (n) => `public class Main${n} { public static void main(String[] a) { for (int i = 0; i < 3; i++) System.out.println(i); } }`;
+  let n = 0;
+  const cli = async (label) => { const k = ++n; cheerpOSAddStringFile(`/str/Main${k}.java`, src(k)); await time(label, () => cheerpjRunMain("com.sun.tools.javac.Main", TOOLS, `/str/Main${k}.java`, "-d", "/files/")); };
+  const driver = async (label) => { const k = ++n; cheerpOSAddStringFile(`/str/Main${k}.java`, src(k)); await time(label, () => cheerpjRunMain("loopback.Compile", `${TOOLS}:${HARNESS}`, `/str/Main${k}.java`, "/files/", HARNESS)); };
+
+  await time("init", () => cheerpjInit({ version: 8, status: "none" }));
+  await time("harness mkdir (loads harness jar)", () => cheerpjRunMain("loopback.Harness", HARNESS, "mkdir", "/files/x"));
+  if (order === "cli") { await cli("cli #1"); await cli("cli #2"); await driver("driver #1"); await driver("driver #2"); }
+  else { await driver("driver #1"); await driver("driver #2"); await cli("cli #1"); await cli("cli #2"); }
+  results.compileOk = await (await cjFileBlob("/files/compile.txt")).text();
+  window.__done = true;
+</script>

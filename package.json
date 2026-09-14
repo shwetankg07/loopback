@@ -7,9 +7,10 @@
     "test": "node --test src/*.test.ts",
     "dev": "vite",
     "build": "vite build",
-    "vendor": "mkdir -p public/vendor/clang public/vendor/pyodide public/vendor/java && cp -r node_modules/@yowasp/clang/gen/. public/vendor/clang/ && for f in pyodide.mjs pyodide.asm.mjs pyodide.asm.wasm python_stdlib.zip pyodide-lock.json; do cp node_modules/pyodide/$f public/vendor/pyodide/; done && ([ -f public/vendor/java/tools.jar ] || cp spike/tools.jar public/vendor/java/ 2>/dev/null || curl -fsSL -o public/vendor/java/tools.jar https://raw.githubusercontent.com/leaningtech/javafiddle/main/static/tools.jar)",
+    "vendor": "mkdir -p public/vendor/pyodide public/vendor/java && ([ -f public/vendor/clang/llvm.core.wasm.gz ] || (mkdir -p public/vendor/clang && cp -r node_modules/@yowasp/clang/gen/. public/vendor/clang/ && gzip -9f public/vendor/clang/llvm.core.wasm public/vendor/clang/llvm-resources.tar)) && for f in pyodide.mjs pyodide.asm.mjs pyodide.asm.wasm python_stdlib.zip pyodide-lock.json; do cp node_modules/pyodide/$f public/vendor/pyodide/; done && ([ -f public/vendor/java/tools.jar ] || cp spike/tools.jar public/vendor/java/ 2>/dev/null || curl -fsSL -o public/vendor/java/tools.jar https://raw.githubusercontent.com/leaningtech/javafiddle/main/static/tools.jar)",
     "predev": "npm run vendor",
-    "prebuild": "npm run vendor"
+    "prebuild": "npm run vendor",
+    "build:java": "rm -rf build/java && javac --release 8 -Xlint:-options -nowarn -cp public/vendor/java/tools.jar -d build/java java/loopback/*.java && jar --create --file public/java-harness.jar -C build/java . && rm -rf build"
   },
   "keywords": [],
   "author": "",
