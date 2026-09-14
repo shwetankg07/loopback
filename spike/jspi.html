@@ -1,0 +1,15 @@
+<!-- Throwaway spike: JSPI recursion ceiling in a worker -->
+<script type="module">
+  const results = (window.__results = {});
+  const DFS = `#include <bits/stdc++.h>\nusing namespace std;\nvector<vector<int>> g; vector<int> dep;\nvoid dfs(int u,int p){ for(int v:g[u]) if(v!=p){ dep[v]=dep[u]+1; dfs(v,u);} }\nint main(){ int n; cin>>n; g.assign(n,{}); dep.assign(n,0); for(int i=1;i<n;i++){ g[i-1].push_back(i); g[i].push_back(i-1);} dfs(0,-1); cout<<dep[n-1]<<"\\n"; }`;
+  try {
+    const cw = new Worker("/spike/cpp-worker.js", { type: "module" });
+    const compiled = await new Promise((res) => { cw.onmessage = (e) => res(e.data); cw.postMessage({ id: 1, op: "compile", code: DFS }); });
+    const jw = new Worker("/spike/jspi-worker.js", { type: "module" });
+    jw.onerror = (e) => { results.workerError = e.message; };
+    results.jspiWorker = await new Promise((res) => { jw.onmessage = (e) => res(e.data); jw.postMessage(compiled.wasm); });
+  } catch (e) {
+    results.fatal = String((e && e.stack) || e);
+  }
+  window.__done = true;
+</script>

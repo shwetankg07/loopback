@@ -1,0 +1,18 @@
+<!-- Throwaway spike: recursion ceiling in worker vs main thread; works in any browser (reports via GET log) -->
+<script type="module">
+  import { runMany } from "/spike/depth-run.js";
+  const results = (window.__results = { ua: navigator.userAgent });
+  const DFS = `#include <bits/stdc++.h>\nusing namespace std;\nvector<vector<int>> g; vector<int> dep;\nvoid dfs(int u,int p){ for(int v:g[u]) if(v!=p){ dep[v]=dep[u]+1; dfs(v,u);} }\nint main(){ int n; cin>>n; g.assign(n,{}); dep.assign(n,0); for(int i=1;i<n;i++){ g[i-1].push_back(i); g[i].push_back(i-1);} dfs(0,-1); cout<<dep[n-1]<<"\\n"; }`;
+  try {
+    const cw = new Worker("/spike/cpp-worker.js", { type: "module" });
+    const compiled = await new Promise((res) => { cw.onmessage = (e) => res(e.data); cw.postMessage({ id: 1, op: "compile", code: DFS }); });
+    results.compileMs = compiled.ms;
+    const dw = new Worker("/spike/depth-worker.js", { type: "module" });
+    results.worker = await new Promise((res) => { dw.onmessage = (e) => res(e.data); dw.postMessage(compiled.wasm); });
+    results.mainThread = await runMany(compiled.wasm);
+  } catch (e) {
+    results.fatal = String((e && e.stack) || e);
+  }
+  await fetch("/spike/__result?" + encodeURIComponent(JSON.stringify(results))).catch(() => {});
+  window.__done = true;
+</script>

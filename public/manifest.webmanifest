@@ -1,0 +1,11 @@
+{
+  "name": "loopback",
+  "short_name": "loopback",
+  "description": "Run C++, Java and Python DSA solutions on your own machine.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0e2233",
+  "theme_color": "#0e2233",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

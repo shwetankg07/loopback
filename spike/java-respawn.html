@@ -1,0 +1,26 @@
+<!-- Throwaway spike: after removing a cross-site frame stuck in a Java loop, can a new frame on the same site boot?
+     ?delay=ms between removing the stuck frame and creating the new one -->
+<script type="module">
+  const results = (window.__results = { steps: [] });
+  const delay = Number(new URLSearchParams(location.search).get("delay") || 0);
+  const host = location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+  const t0 = performance.now();
+  const at = () => Math.round(performance.now() - t0);
+  const frame = (steps) => { const f = document.createElement("iframe"); f.src = `http://${host}:${location.port}/spike/java.html?steps=${steps}`; document.body.append(f); return f; };
+  const waitFor = (f, prefix, ms) => new Promise((res) => {
+    const on = (e) => { if (e.source === f.contentWindow) { results.steps.push(`${at()}ms ${e.data}`); if (String(e.data).startsWith(prefix)) { removeEventListener("message", on); res(true); } } };
+    addEventListener("message", on);
+    setTimeout(() => { removeEventListener("message", on); res(false); }, ms);
+  });
+
+  const a = frame("loop");
+  results.loopStarted = await waitFor(a, "loop start", 60000);
+  await new Promise((r) => setTimeout(r, 1000));
+  a.remove();
+  results.removedAt = at();
+  await new Promise((r) => setTimeout(r, delay));
+  const b = frame("none");
+  results.secondFrameDone = await waitFor(b, "done", 45000);
+  results.delay = delay;
+  window.__done = true;
+</script>

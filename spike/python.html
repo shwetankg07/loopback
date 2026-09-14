@@ -1,0 +1,42 @@
+<!-- Throwaway spike: Pyodide worker stdin, errors, kill + respawn -->
+<script type="module">
+  const results = (window.__results = {});
+  const ms = (t) => Math.round(performance.now() - t);
+
+  function spawn() {
+    const t = performance.now();
+    const w = new Worker("/spike/py-worker.js", { type: "module" });
+    const ready = new Promise((res) => w.addEventListener("message", (e) => e.data.type === "ready" && res({ w, workerMs: e.data.ms, wallMs: ms(t) }), { once: false }));
+    return ready;
+  }
+
+  function run(w, code, stdin, timeoutMs = 5000) {
+    return new Promise((res) => {
+      const timer = setTimeout(() => { w.terminate(); res({ status: "timeout" }); }, timeoutMs);
+      const on = (e) => { if (e.data.type !== "done") return; clearTimeout(timer); w.removeEventListener("message", on); res(e.data); };
+      w.addEventListener("message", on);
+      w.postMessage({ code, stdin });
+    });
+  }
+
+  try {
+    let { w, workerMs, wallMs } = await spawn();
+    results.coldStart = { workerMs, wallMs };
+    results.aplusb = await run(w, "a, b = map(int, input().split())\nprint(a + b)", "2 3\n");
+    results.aplusbWarm = await run(w, "a, b = map(int, input().split())\nprint(a + b)", "40 2\n");
+    results.globalsIsolated = await run(w, "print('a' in globals())", "");
+    const big = "200000\n" + Array.from({ length: 200000 }, (_, i) => i).join(" ") + "\n";
+    results.bigInput = await run(w, "import sys\ndata = sys.stdin.buffer.read().split()\nprint(sum(map(int, data[1:])))", big);
+    results.runtimeError = await run(w, "x = [1]\nprint(x[5])", "");
+    results.syntaxError = await run(w, "def f(:\n  pass", "");
+    results.recursion = await run(w, "import sys\nsys.setrecursionlimit(10**6)\ndef f(n): return 0 if n == 0 else 1 + f(n-1)\nprint(f(20000))", "");
+    const t = performance.now();
+    results.infinite = await run(w, "while True: pass", "", 2000);
+    ({ w, workerMs, wallMs } = await spawn());
+    results.respawn = { workerMs, wallMs, sinceKillMs: ms(t) - 2000 };
+    results.afterRespawn = await run(w, "print(input()[::-1])", "olleh\n");
+  } catch (e) {
+    results.fatal = String(e && e.stack || e);
+  }
+  window.__done = true;
+</script>

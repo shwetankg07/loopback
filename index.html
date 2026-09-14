@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>loopback: run C++, Java and Python on your own machine</title>
+    <meta name="description" content="A DSA practice playground that compiles and runs C++, Java and Python in your browser, on your own CPU. Nothing is sent to a server." />
+    <meta name="theme-color" content="#0e2233" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.webmanifest" />
+  </head>
+  <body>
+    <header class="bar">
+      <h1>loopback</h1>
+      <p class="tag">Compiles and runs on your own machine. Your code never leaves this tab.</p>
+      <div class="langs" role="radiogroup" aria-label="Language">
+        <button type="button" role="radio" data-lang="cpp">C++</button>
+        <button type="button" role="radio" data-lang="java">Java</button>
+        <button type="button" role="radio" data-lang="python">Python</button>
+      </div>
+      <button type="button" id="share">Copy share link</button>
+    </header>
+
+    <main class="work">
+      <section class="editor" aria-label="Code editor"><div id="editor"></div></section>
+
+      <section class="tests" aria-labelledby="tests-title">
+        <div class="tests-head">
+          <h2 id="tests-title">Tests</h2>
+          <kbd id="run-hint">Ctrl + Enter</kbd>
+          <button type="button" id="run-all" class="primary">Run all tests</button>
+        </div>
+        <pre id="compile-error" hidden></pre>
+        <ol id="test-list"></ol>
+        <button type="button" id="add-test">Add test</button>
+      </section>
+    </main>
+
+    <footer id="status" role="status" aria-live="polite"></footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

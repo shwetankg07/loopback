@@ -1,0 +1,21 @@
+<!-- Throwaway spike: does a Java infinite loop in an iframe freeze this page?
+     Parent on 127.0.0.1, iframe on localhost = different site = separate process under site isolation.
+     ?same=1 puts the iframe on the same site for comparison. -->
+<iframe id="f" style="width:600px;height:200px"></iframe>
+<script type="module">
+  const results = (window.__results = { ticks: [], steps: [] });
+  const same = new URLSearchParams(location.search).get("same") === "1";
+  const host = same ? location.hostname : location.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+  results.iframeHost = host;
+  const t0 = performance.now();
+  addEventListener("message", (e) => { results.steps.push(`${Math.round(performance.now() - t0)}ms ${e.data}`); console.log("IFRAME", e.data); });
+  document.getElementById("f").src = `http://${host}:${location.port}/spike/java.html?steps=loop`;
+
+  let last = performance.now();
+  const iv = setInterval(() => { const now = performance.now(); results.ticks.push(Math.round(now - last)); last = now; }, 250);
+  await new Promise((res) => addEventListener("message", (e) => { if (String(e.data).startsWith("loop start")) setTimeout(res, 8000); }));
+  clearInterval(iv);
+  results.ticks = results.ticks.slice(-40);
+  results.maxGapLast10sMs = Math.max(...results.ticks);
+  window.__done = true;
+</script>

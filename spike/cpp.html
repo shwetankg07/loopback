@@ -1,0 +1,34 @@
+<!-- Throwaway spike: C++ in a browser worker; cold/warm compile and real recursion ceiling -->
+<script type="module">
+  const results = (window.__results = {});
+  const w = new Worker("/spike/cpp-worker.js", { type: "module" });
+  let seq = 0;
+  const call = (msg) => new Promise((res) => {
+    const id = ++seq;
+    const on = (e) => { if (e.data.id !== id) return; w.removeEventListener("message", on); res(e.data); };
+    w.addEventListener("message", on);
+    w.postMessage({ ...msg, id }, msg.wasm ? [] : []);
+  });
+  const slim = (r) => ({ ...r, wasm: r.wasm ? r.wasm.length + "B" : undefined });
+
+  try {
+    const ab = `#include <bits/stdc++.h>\nusing namespace std;\nint main(){ long long a,b; cin>>a>>b; cout<<a+b<<"\\n"; }`;
+    const c1 = await call({ op: "compile", code: ab });
+    results.coldCompile = slim(c1);
+    results.run1 = await call({ op: "run", wasm: c1.wasm, stdin: "2 3\n" });
+    results.warmCompile = slim(await call({ op: "compile", code: ab.replace("a+b", "a*b") }));
+
+    const dfs = `#include <bits/stdc++.h>\nusing namespace std;\nvector<vector<int>> g; vector<int> dep;\nvoid dfs(int u,int p){ for(int v:g[u]) if(v!=p){ dep[v]=dep[u]+1; dfs(v,u);} }\nint main(){ int n; cin>>n; g.assign(n,{}); dep.assign(n,0); for(int i=1;i<n;i++){ g[i-1].push_back(i); g[i].push_back(i-1);} dfs(0,-1); cout<<dep[n-1]<<"\\n"; }`;
+    const d = await call({ op: "compile", code: dfs });
+    results.depth = {};
+    for (const n of [5000, 10000, 20000, 30000, 50000, 100000]) {
+      const r = await call({ op: "run", wasm: d.wasm, stdin: n + "\n" });
+      results.depth[n] = r.threw ? "THREW " + r.threw : "ok " + r.out.trim();
+    }
+    const ce = await call({ op: "compile", code: "int main(){ return x; }" });
+    results.compileError = slim(ce);
+  } catch (e) {
+    results.fatal = String(e && e.stack || e);
+  }
+  window.__done = true;
+</script>

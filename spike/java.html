@@ -1,0 +1,104 @@
+<!-- Throwaway spike: CheerpJ 8 + tools.jar javac, harness with per-run URLClassLoader.
+     ?steps=basic (default) | rec100k | exit | loop   — risky steps run in their own browser -->
+<script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></script>
+<pre id="console"></pre>
+<script type="module">
+  const results = (window.__results = {});
+  const steps = new URLSearchParams(location.search).get("steps") || "basic";
+  const cons = document.getElementById("console");
+  const ms = (t) => Math.round(performance.now() - t);
+  const CP = "/app/spike/tools.jar:/files/";
+  const step = (s) => { console.log("STEP", s, Math.round(performance.now())); if (parent !== window) parent.postMessage(String(s), "*"); };
+
+  const harness = `import java.io.*; import java.net.*;
+public class Harness { public static void main(String[] a) throws Exception {
+  if (a[0].equals("mkdir")) { new File(a[1]).mkdirs(); return; }
+  System.setIn(new BufferedInputStream(new FileInputStream("/str/stdin.txt")));
+  PrintStream realOut = System.out;
+  PrintStream out = new PrintStream(new BufferedOutputStream(new FileOutputStream("/files/stdout.txt")), false);
+  System.setOut(out);
+  String status = "ok";
+  try {
+    ClassLoader cl = new URLClassLoader(new URL[]{ new File(a[1]).toURI().toURL() }, Harness.class.getClassLoader());
+    Class.forName(a[2], true, cl).getMethod("main", String[].class).invoke(null, (Object) new String[0]);
+  } catch (java.lang.reflect.InvocationTargetException e) {
+    Throwable c = e.getCause();
+    status = (c instanceof StackOverflowError) ? "stack_overflow" : "runtime_error";
+    c.printStackTrace();
+  } finally { out.flush(); out.close(); System.setOut(realOut); }
+  FileOutputStream s = new FileOutputStream("/files/status.txt"); s.write(status.getBytes()); s.close();
+}}`;
+
+  const text = async (p) => { try { return await (await cjFileBlob(p)).text(); } catch (e) { return "ERR " + e; } };
+
+  async function javac(files, dir) {
+    cons.textContent = "";
+    for (const [name, src] of Object.entries(files)) cheerpOSAddStringFile("/str/" + name, src);
+    const t = performance.now();
+    const code = await cheerpjRunMain("com.sun.tools.javac.Main", CP, ...Object.keys(files).map((n) => "/str/" + n), "-d", dir);
+    return { code, ms: ms(t), console: cons.textContent.slice(0, 500) };
+  }
+  const mkdir = (dir) => cheerpjRunMain("Harness", "/files/", "mkdir", dir);
+
+  async function run(dir, stdin, cls = "Main") {
+    cons.textContent = "";
+    cheerpOSAddStringFile("/str/stdin.txt", stdin);
+    const t = performance.now();
+    const code = await cheerpjRunMain("Harness", "/files/", "run", dir, cls);
+    return { code, ms: ms(t), stdout: (await text("/files/stdout.txt")).slice(0, 200), status: await text("/files/status.txt"), console: cons.textContent.slice(0, 300) };
+  }
+
+  async function compileAndRun(label, dir, src, stdin) {
+    step(label);
+    await mkdir(dir);
+    const c = await javac({ "Main.java": src }, dir);
+    results[label] = c.code === 0 ? { compileMs: c.ms, ...(await run(dir, stdin)) } : { compile: c };
+  }
+
+  const aplusb = `import java.util.*;
+public class Main { public static void main(String[] a){ Scanner s=new Scanner(System.in); long x=s.nextLong(), y=s.nextLong(); System.out.println(x+y); } }`;
+  const rec = `import java.util.*;
+public class Main { static int f(int n){ return n==0?0:1+f(n-1); } public static void main(String[] a){ int n=new Scanner(System.in).nextInt(); System.out.println(f(n)); } }`;
+
+  try {
+    step("init");
+    let t = performance.now();
+    await cheerpjInit({ version: 8, status: "none" });
+    results.initMs = ms(t);
+    step("harness");
+    results.harnessCompile = await javac({ "Harness.java": harness }, "/files/");
+
+    if (steps === "basic") {
+      await compileAndRun("aplusb cold", "/files/r1", aplusb, "2 3\n");
+      step("rerun"); results["aplusb rerun"] = await run("/files/r1", "40 2\n");
+      await compileAndRun("recompile same dir (x*y)", "/files/r1", aplusb.replace("x+y", "x*y"), "6 7\n");
+      await compileAndRun("new dir (x-y)", "/files/r2", aplusb.replace("x+y", "x-y"), "6 7\n");
+      step("compileError"); await mkdir("/files/r3"); results.compileError = await javac({ "Main.java": "public class Main { void f(){ return x; } }" }, "/files/r3");
+      await compileAndRun("runtime error", "/files/r4", "public class Main { public static void main(String[] a){ int[] x = new int[1]; System.out.println(x[5]); } }", "");
+      await compileAndRun("recursion 10000", "/files/r5", rec, "10000\n");
+      const big = "200000\n" + Array.from({ length: 200000 }, (_, i) => i).join(" ") + "\n";
+      await compileAndRun("200k ints BufferedReader", "/files/r6", `import java.io.*; import java.util.*;
+public class Main { public static void main(String[] a) throws IOException { BufferedReader br=new BufferedReader(new InputStreamReader(System.in)); int n=Integer.parseInt(br.readLine().trim()); StringTokenizer st=new StringTokenizer(br.readLine()); long s=0; for(int i=0;i<n;i++) s+=Integer.parseInt(st.nextToken()); System.out.println(s); } }`, big);
+    } else if (steps === "rec100k") {
+      await compileAndRun("recursion 50000", "/files/r5", rec, "50000\n");
+      step("rec100k"); results["recursion 100000"] = await run("/files/r5", "100000\n");
+    } else if (steps === "exit") {
+      await compileAndRun("System.exit(0)", "/files/r7", `public class Main { public static void main(String[] a){ System.out.println("bye"); System.exit(0); } }`, "");
+      await compileAndRun("run after System.exit", "/files/r1", aplusb, "3 4\n");
+    } else if (steps === "loop") {
+      step("loop compile"); await mkdir("/files/r8");
+      results.loopCompile = await javac({ "Main.java": "public class Main { public static void main(String[] a){ long i=0; while(true){ i++; } } }" }, "/files/r8");
+      cheerpOSAddStringFile("/str/stdin.txt", "");
+      step("loop start");
+      const loop = cheerpjRunMain("Harness", "/files/", "run", "/files/r8", "Main").then(() => "resolved");
+      const tickStart = performance.now();
+      const tick = await new Promise((res) => setTimeout(() => res(ms(tickStart)), 100));
+      step("tick " + tick);
+      results.infiniteLoop = { setTimeout100ActualMs: tick, raced: await Promise.race([loop, new Promise((r) => setTimeout(() => r("still running after 3s"), 3000))]) };
+    }
+  } catch (e) {
+    results.fatal = String((e && e.stack) || e);
+  }
+  step("done");
+  window.__done = true;
+</script>
