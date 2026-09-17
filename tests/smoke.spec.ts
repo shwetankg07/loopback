@@ -1,21 +1,41 @@
 import { test, expect, type Page } from '@playwright/test'
 
-type Lang = 'cpp' | 'java' | 'python'
+type Lang = 'c' | 'cpp' | 'java' | 'python' | 'js' | 'ts' | 'go' | 'ruby' | 'php'
 
-// Reads "a b" and prints a+b, or spins forever when the first token is "loop".
-const PROGRAMS: Record<Lang, { good: string; broken: string; brokenMessage: RegExp }> = {
+// Each program reads "a b" and prints a+b, or spins forever when the first token is "loop".
+// Compiled languages report a broken program as a compile error; interpreters only fail once running.
+const PROGRAMS: Record<Lang, { good: string; broken: string; brokenMessage: RegExp; brokenVerdict: 'Compile error' | 'Runtime error' }> = {
+  c: {
+    good: `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+int main(void) {
+    char s[64];
+    scanf("%63s", s);
+    if (strcmp(s, "loop") == 0) for (;;) {}
+    long long b;
+    scanf("%lld", &b);
+    printf("%lld\\n", atoll(s) + b);
+    return 0;
+}`,
+    broken: 'int main(void) { return x; }',
+    brokenMessage: /undeclared identifier 'x'/,
+    brokenVerdict: 'Compile error',
+  },
   cpp: {
     good: `#include <bits/stdc++.h>
 using namespace std;
 int main() { string s; cin >> s; if (s == "loop") for (;;) {} long long b; cin >> b; cout << stoll(s) + b << "\\n"; }`,
     broken: 'int main() { return x; }',
     brokenMessage: /undeclared identifier 'x'/,
+    brokenVerdict: 'Compile error',
   },
   java: {
     good: `import java.util.*;
 public class Main { public static void main(String[] args) { Scanner in = new Scanner(System.in); String s = in.next(); if (s.equals("loop")) while (true) {} System.out.println(Long.parseLong(s) + in.nextLong()); } }`,
     broken: 'public class Main { public static void main(String[] args) { return x; } }',
     brokenMessage: /Main\.java:1: error/,
+    brokenVerdict: 'Compile error',
   },
   python: {
     good: `a = input().split()
@@ -24,6 +44,71 @@ if a[0] == "loop":
 print(int(a[0]) + int(a[1]))`,
     broken: 'def f(:\n    pass',
     brokenMessage: /SyntaxError/,
+    brokenVerdict: 'Compile error',
+  },
+  js: {
+    good: `const s = input();
+if (s === "loop") { while (true) {} }
+const [a, b] = s.split(" ").map(Number);
+print(a + b);`,
+    broken: 'function f( {',
+    brokenMessage: /SyntaxError|Unexpected/,
+    brokenVerdict: 'Compile error',
+  },
+  ts: {
+    good: `const s: string = input()!;
+if (s === "loop") { while (true) {} }
+const [a, b]: number[] = s.split(" ").map(Number);
+print(a + b);`,
+    broken: 'const x: = 5;',
+    brokenMessage: /Unexpected token/,
+    brokenVerdict: 'Compile error',
+  },
+  go: {
+    good: `package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+
+func main() {
+	reader := bufio.NewReader(os.Stdin)
+	var s string
+	fmt.Fscan(reader, &s)
+	if s == "loop" {
+		for {
+		}
+	}
+	var a, b int64
+	fmt.Sscan(s, &a)
+	fmt.Fscan(reader, &b)
+	fmt.Println(a + b)
+}`,
+    broken: `package main
+
+func main() { undefinedThing() }`,
+    brokenMessage: /undefined/,
+    brokenVerdict: 'Runtime error',
+  },
+  ruby: {
+    good: `s = gets.split
+loop { } if s[0] == "loop"
+puts s.map(&:to_i).sum`,
+    broken: 'def f(',
+    brokenMessage: /SyntaxError|error/,
+    brokenVerdict: 'Runtime error',
+  },
+  php: {
+    good: `<?php
+$line = trim(fgets(STDIN));
+if ($line === "loop") { while (true) {} }
+$p = array_map('intval', explode(' ', $line));
+echo array_sum($p), "\\n";`,
+    broken: '<?php echo ;',
+    brokenMessage: /Parse error/,
+    brokenVerdict: 'Runtime error',
   },
 }
 
@@ -39,7 +124,7 @@ async function open(page: Page, lang: Lang, code: string, tests: { input: string
 
 const verdict = (page: Page, i: number) => page.locator('#test-list > li').nth(i).locator('.verdict')
 
-for (const lang of ['cpp', 'java', 'python'] as const) {
+for (const lang of Object.keys(PROGRAMS) as Lang[]) {
   test(`${lang}: accepted, wrong answer, time limit, then recovers`, async ({ page }) => {
     await open(page, lang, PROGRAMS[lang].good, [
       { input: '2 3\n', expected: '5\n' },
@@ -57,9 +142,20 @@ for (const lang of ['cpp', 'java', 'python'] as const) {
     await expect(page.locator('#status')).toHaveText(/Ran 4 tests\. 2 of 3 accepted\./)
   })
 
-  if (lang === 'java') {
-    test('java: every kind of stuck loop stops at the time limit, and System.exit works', async ({ page }) => {
-      await open(page, 'java', `import java.util.*;
+  test(`${lang}: a broken program reports ${PROGRAMS[lang].brokenVerdict}`, async ({ page }) => {
+    await open(page, lang, PROGRAMS[lang].broken, [{ input: '1 1\n', expected: '2\n' }])
+    await page.getByRole('button', { name: 'Run all tests' }).click()
+    await expect(verdict(page, 0)).toHaveText(PROGRAMS[lang].brokenVerdict)
+    // PHP's CGI build prints its errors to stdout, so that's where its message lands.
+    const message = PROGRAMS[lang].brokenVerdict === 'Compile error'
+      ? page.locator('#compile-error')
+      : page.locator('#test-list > li').first().locator(lang === 'php' ? '.stdout' : '.stderr')
+    await expect(message).toHaveText(PROGRAMS[lang].brokenMessage)
+  })
+}
+
+test('java: every kind of stuck loop stops at the time limit, and System.exit works', async ({ page }) => {
+    await open(page, 'java', `import java.util.*;
 public class Main {
     public static void main(String[] args) {
         Scanner in = new Scanner(System.in);
@@ -72,24 +168,15 @@ public class Main {
         System.out.println(Long.parseLong(s) + in.nextLong());
     }
 }`, [
-        { input: 'while\n', expected: '' },
-        { input: 'for\n', expected: '' },
-        { input: 'do\n', expected: '' },
-        { input: 'catch\n', expected: '' },
-        { input: 'exit\n', expected: 'bye\n' },
-        { input: '7 8\n', expected: '15\n' },
-      ])
-      await page.getByRole('button', { name: 'Run all tests' }).click()
-      for (const i of [0, 1, 2, 3]) await expect(verdict(page, i)).toHaveText('Time limit exceeded')
-      await expect(verdict(page, 4)).toHaveText('Accepted')
-      await expect(verdict(page, 5)).toHaveText('Accepted')
-    })
-  }
-
-  test(`${lang}: compile error is shown`, async ({ page }) => {
-    await open(page, lang, PROGRAMS[lang].broken, [{ input: '1 1\n', expected: '2\n' }])
+      { input: 'while\n', expected: '' },
+      { input: 'for\n', expected: '' },
+      { input: 'do\n', expected: '' },
+      { input: 'catch\n', expected: '' },
+      { input: 'exit\n', expected: 'bye\n' },
+      { input: '7 8\n', expected: '15\n' },
+    ])
     await page.getByRole('button', { name: 'Run all tests' }).click()
-    await expect(verdict(page, 0)).toHaveText('Compile error')
-    await expect(page.locator('#compile-error')).toHaveText(PROGRAMS[lang].brokenMessage)
+    for (const i of [0, 1, 2, 3]) await expect(verdict(page, i)).toHaveText('Time limit exceeded')
+    await expect(verdict(page, 4)).toHaveText('Accepted')
+    await expect(verdict(page, 5)).toHaveText('Accepted')
   })
-}

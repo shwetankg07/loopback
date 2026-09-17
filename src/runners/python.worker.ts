@@ -1,3 +1,5 @@
+export {} // keeps this a module, so its declarations stay local to the worker
+
 type Msg =
   | { op: 'check'; vendor: string; code: string }
   | { op: 'run'; vendor: string; code: string; stdin: string; limit: number }
@@ -24,8 +26,14 @@ finally:
 let py: any
 
 onmessage = async ({ data }: MessageEvent<Msg>) => {
-  py ??= await (await import(/* @vite-ignore */ data.vendor + 'pyodide/pyodide.mjs')).loadPyodide({ indexURL: data.vendor + 'pyodide/' })
-  postMessage(data.op === 'check' ? check(data.code) : run(data.code, data.stdin, data.limit))
+  // Always answer: an unhandled rejection here would leave the page waiting forever.
+  try {
+    py ??= await (await import(/* @vite-ignore */ data.vendor + 'pyodide/pyodide.mjs')).loadPyodide({ indexURL: data.vendor + 'pyodide/' })
+    postMessage(data.op === 'check' ? check(data.code) : run(data.code, data.stdin, data.limit))
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    postMessage(data.op === 'check' ? { compileError: message } : { status: 'runtime_error', out: '', err: message, ms: 0, fatal: true })
+  }
 }
 
 function check(code: string) {

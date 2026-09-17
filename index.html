@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>loopback: run C++, Java and Python on your own machine</title>
-    <meta name="description" content="A DSA practice playground that compiles and runs C++, Java and Python in your browser, on your own CPU. Nothing is sent to a server." />
+    <title>loopback: compile and run contest code in your browser</title>
+    <meta name="description" content="Compile and run C, C++, Java, Python, JavaScript, TypeScript, Go, Ruby and PHP in your browser, on your own CPU. Check your Codeforces solution against sample tests without opening an online compiler." />
     <meta name="theme-color" content="#0e2233" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="manifest" href="manifest.webmanifest" />
@@ -12,12 +12,11 @@
   <body>
     <header class="bar">
       <h1>loopback</h1>
-      <p class="tag">Compiles and runs on your own machine. Your code never leaves this tab.</p>
-      <div class="langs" role="radiogroup" aria-label="Language">
-        <button type="button" role="radio" data-lang="cpp">C++</button>
-        <button type="button" role="radio" data-lang="java">Java</button>
-        <button type="button" role="radio" data-lang="python">Python</button>
-      </div>
+      <p class="tag">Check your solution against the samples without leaving the tab. Runs on your own machine.</p>
+      <label class="lang">
+        Language
+        <select id="lang"></select>
+      </label>
       <button type="button" id="share">Copy share link</button>
     </header>
 

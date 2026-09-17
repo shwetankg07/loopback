@@ -7,6 +7,11 @@ import { tags as t } from '@lezer/highlight'
 import { cpp } from '@codemirror/lang-cpp'
 import { java } from '@codemirror/lang-java'
 import { python } from '@codemirror/lang-python'
+import { go } from '@codemirror/lang-go'
+import { javascript } from '@codemirror/lang-javascript'
+import { php } from '@codemirror/lang-php'
+import { StreamLanguage, type LanguageSupport } from '@codemirror/language'
+import { ruby } from '@codemirror/legacy-modes/mode/ruby'
 import { prepare, type Lang, type Prepared, type RunResult } from './run.ts'
 import { onCompilerDownload } from './runners/cpp.ts'
 import { decodeShare, encodeShare, normalize, sameOutput, type Verdict } from './judge.ts'
@@ -14,8 +19,10 @@ import { decodeShare, encodeShare, normalize, sameOutput, type Verdict } from '.
 type Test = { input: string; expected: string }
 type Outcome = { verdict: Verdict | 'ran' | 'running'; result?: RunResult }
 
-const NAMES: Record<Lang, string> = { cpp: 'C++', java: 'Java', python: 'Python' }
-const TIME_LIMIT: Record<Lang, number> = { cpp: 2000, java: 5000, python: 5000 }
+const NAMES: Record<Lang, string> = {
+  cpp: 'C++', c: 'C', java: 'Java', python: 'Python', js: 'JavaScript', ts: 'TypeScript', go: 'Go', ruby: 'Ruby', php: 'PHP',
+}
+const TIME_LIMIT: Record<Lang, number> = { c: 2000, cpp: 2000, java: 5000, python: 5000, js: 5000, ts: 5000, go: 5000, ruby: 5000, php: 5000 }
 const TEMPLATES: Record<Lang, string> = {
   cpp: `#include <bits/stdc++.h>
 using namespace std;
@@ -48,6 +55,45 @@ input = sys.stdin.readline
 a, b = map(int, input().split())
 print(a + b)
 `,
+  c: `#include <stdio.h>
+
+int main(void) {
+    long long a, b;
+    scanf("%lld %lld", &a, &b);
+    printf("%lld\\n", a + b);
+    return 0;
+}
+`,
+  js: `// input() returns the next line, or null at the end. print() writes a line.
+const [a, b] = input().split(' ').map(Number);
+print(a + b);
+`,
+  ts: `// input() returns the next line, or null at the end. print() writes a line.
+const [a, b]: number[] = input()!.split(' ').map(Number);
+print(a + b);
+`,
+  go: `package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+
+func main() {
+	reader := bufio.NewReader(os.Stdin)
+	var a, b int64
+	fmt.Fscan(reader, &a, &b)
+	fmt.Println(a + b)
+}
+`,
+  ruby: `a, b = gets.split.map(&:to_i)
+puts a + b
+`,
+  php: `<?php
+[$a, $b] = array_map('intval', explode(' ', trim(fgets(STDIN))));
+echo $a + $b, "\\n";
+`,
 }
 const VERDICT_TEXT: Record<Outcome['verdict'], string> = {
   AC: 'Accepted', WA: 'Wrong answer', TLE: 'Time limit exceeded', RE: 'Runtime error', CE: 'Compile error', ran: 'Finished', running: 'Running',
@@ -60,12 +106,10 @@ const load = <T>(key: string, fallback: T): T => {
 const save = (key: string, value: unknown) => localStorage.setItem('loopback:' + key, JSON.stringify(value))
 
 let lang: Lang = load('lang', 'cpp')
-const code: Record<Lang, string> = {
-  cpp: load('code:cpp', TEMPLATES.cpp),
-  java: load('code:java', TEMPLATES.java),
-  python: load('code:python', TEMPLATES.python),
-}
-let tests: Test[] = load('tests', [{ input: '2 3\n', expected: '5\n' }])
+const LANGS = Object.keys(NAMES) as Lang[]
+const code = Object.fromEntries(LANGS.map((l) => [l, load('code:' + l, TEMPLATES[l])])) as Record<Lang, string>
+// Starts with no expected output: the default is "run my code and show me what it printed".
+let tests: Test[] = load('tests', [{ input: '2 3\n', expected: '' }])
 let outcomes: (Outcome | undefined)[] = []
 let cache: { key: string; prepared: Prepared } | undefined
 let busy = false
@@ -100,7 +144,18 @@ const theme = EditorView.theme({
 }, { dark: true })
 
 const language = new Compartment()
-const languageFor = (l: Lang) => (l === 'cpp' ? cpp() : l === 'java' ? java() : python())
+const EDITOR_LANGS: Record<Lang, () => LanguageSupport | ReturnType<typeof StreamLanguage.define>> = {
+  c: cpp,
+  cpp,
+  java,
+  python,
+  js: javascript,
+  ts: () => javascript({ typescript: true }),
+  go,
+  ruby: () => StreamLanguage.define(ruby),
+  php,
+}
+const languageFor = (l: Lang) => EDITOR_LANGS[l]()
 
 const view = new EditorView({
   doc: code[lang],
@@ -125,7 +180,7 @@ function setLang(next: Lang) {
   lang = next
   save('lang', lang)
   view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: code[lang] }, effects: language.reconfigure(languageFor(lang)) })
-  for (const b of document.querySelectorAll<HTMLButtonElement>('.langs button')) b.setAttribute('aria-checked', String(b.dataset.lang === lang))
+  langSelect.value = lang
   outcomes = []
   compileErrorEl.hidden = true
   renderTests()
@@ -159,7 +214,7 @@ function renderTests() {
       </div>
       <div class="io">
         <label>Input<textarea class="input" spellcheck="false"></textarea></label>
-        <label>Expected output<textarea class="expected" spellcheck="false" placeholder="Optional"></textarea></label>
+        <label>Expected output<textarea class="expected" spellcheck="false" placeholder="Leave empty to just see the output"></textarea></label>
       </div>
       <div class="out" hidden>
         <div class="out-label">Output</div>
@@ -212,7 +267,7 @@ function verdictOf(r: RunResult, expected: string): Outcome['verdict'] {
 
 function setBusy(on: boolean) {
   busy = on
-  for (const b of document.querySelectorAll<HTMLButtonElement>('#run-all, #add-test, .run-one, .remove, .langs button')) b.disabled = on
+  for (const b of document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('#run-all, #add-test, .run-one, .remove, #lang')) b.disabled = on
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
@@ -228,10 +283,8 @@ async function runTests(indices = tests.map((_, i) => i)) {
     const key = runLang + '\0' + source
     let prepared = cache?.key === key ? cache.prepared : undefined
     if (!prepared) {
-      setStatus(started.has(runLang) ? `Compiling ${NAMES[runLang]}...`
-        : runLang === 'java' ? 'Starting Java. The first run takes about 10 seconds.'
-        : runLang === 'python' ? 'Starting Python...'
-        : 'Compiling C++...')
+      setStatus(started.has(runLang) || runLang === 'js' ? `Compiling ${NAMES[runLang]}...`
+        : `Starting ${NAMES[runLang]} for the first time. This downloads its toolchain once.`)
       const t0 = performance.now()
       prepared = await prepare(runLang, source)
       started.add(runLang)
@@ -263,8 +316,8 @@ async function runTests(indices = tests.map((_, i) => i)) {
 }
 
 onCompilerDownload(({ doneLength, totalLength }) => {
-  if (doneLength < totalLength) setStatus(`Downloading the C++ compiler: ${Math.round((100 * doneLength) / totalLength)}% of ${Math.round(totalLength / 1e6)} MB. This happens once.`)
-  else setStatus('Compiling C++...')
+  if (doneLength < totalLength) setStatus(`Downloading the C and C++ compiler: ${Math.round((100 * doneLength) / totalLength)}% of ${Math.round(totalLength / 1e6)} MB. This happens once.`)
+  else setStatus('Compiling...')
 })
 
 // ---- wiring ----
@@ -275,7 +328,9 @@ $('#add-test').onclick = () => {
   renderTests()
   listEl.lastElementChild?.querySelector('textarea')?.focus()
 }
-for (const b of document.querySelectorAll<HTMLButtonElement>('.langs button')) b.onclick = () => setLang(b.dataset.lang as Lang)
+const langSelect = $<HTMLSelectElement>('#lang')
+langSelect.replaceChildren(...LANGS.map((l) => new Option(NAMES[l], l)))
+langSelect.onchange = () => setLang(langSelect.value as Lang)
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.defaultPrevented) { e.preventDefault(); runTests() }
 })

@@ -1,3 +1,16 @@
+# Spike findings
+
+## 2026-09-17: six more languages
+Rule: a language works here only if its **compiler or interpreter** was ported to wasm. Compiling *to* wasm is irrelevant.
+
+- **Go**: yaegi built with `GOOS=wasip1 GOARCH=wasm` is 38MB (8MB gzipped) and runs under `@runno/wasi`. Goroutines and channels work. Evaluating a `package main` source runs `main()` itself, so calling `main.main()` afterwards fails with "undefined selector: main".
+- **Ruby**: WLR `ruby-3.2.2.wasm`, 24MB (7MB gzipped). `gets` works through our stdin shim. Syntax errors are terse: `/main.rb: SyntaxError`.
+- **PHP**: only the CGI build is maintained for WASI, which changes three things.
+  - `-q` suppresses the CGI headers, but setting `REQUEST_METHOD` brings them back, so they're stripped from stdout.
+  - There is no `STDIN` constant (that's the CLI build) and `fopen("php://stdin")` fails. Input has to arrive as a POST body: `REQUEST_METHOD=POST`, `CONTENT_LENGTH`, `SCRIPT_FILENAME`, and then a wrapper file does `define('STDIN', fopen('php://input', 'r'))` so user code reads normally.
+  - `-d html_errors=0` turns the HTML error markup into plain text.
+- **Rejected**: Rust (rustc needs subprocesses and threads; rubrc is unmaintained), Swift (no wasm `swiftc`), Scala and Kotlin (JVM compilers, far heavier than javac, which is already the slowest thing here), Elixir (Popcorn is prerelease and version-pinned).
+
 # Phase 0 spike findings (2026-09-12)
 
 All measured in headless Chromium 151 / Firefox 153 on this machine. Throwaway code lives in `spike/`.

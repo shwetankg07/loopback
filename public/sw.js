@@ -1,7 +1,7 @@
 // Offline support: pages network-first, everything else (hashed assets, compilers, Pyodide) cache-first.
 // ponytail: vendor files aren't content-hashed, so bump CACHE when a toolchain version changes.
 // Java's CheerpJ runtime comes from its CDN with Range requests and isn't cached, so Java needs a connection.
-const CACHE = "loopback-v1";
+const CACHE = "loopback-v2";
 
 // The first visit loads the page before this worker controls it, so precache the shell and what it references;
 // workers and toolchains load later and get cached on the way through.
