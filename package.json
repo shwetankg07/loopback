@@ -11,7 +11,7 @@
     "predev": "npm run vendor",
     "prebuild": "npm run vendor",
     "build:java": "rm -rf build/java && javac --release 8 -Xlint:-options -nowarn -cp public/vendor/java/tools.jar -d build/java java/loopback/*.java && jar --create --file public/java-harness.jar -C build/java . && rm -rf build",
-    "build:go": "cd go && GOOS=wasip1 GOARCH=wasm go build -ldflags=\"-s -w\" -o ../public/vendor/go/yaegi.wasm . && gzip -9f ../public/vendor/go/yaegi.wasm"
+    "build:go": "bash scripts/build-go.sh"
   },
   "keywords": [],
   "author": "",
@@ -30,6 +30,7 @@
     "@codemirror/view": "^6.43.11",
     "@lezer/highlight": "^1.2.3",
     "@runno/wasi": "^0.10.0",
+    "@vercel/analytics": "^2.0.1",
     "@yowasp/clang": "^22.0.0-git20542-10",
     "codemirror": "^6.0.2",
     "pyodide": "^314.0.6",

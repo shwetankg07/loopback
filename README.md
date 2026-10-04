@@ -71,7 +71,7 @@ npm run dev       # vendors the toolchains into public/vendor, then starts Vite
 | `npm test` | Unit tests for output comparison and share links |
 | `npx playwright test` | End-to-end: every language through Accepted, Wrong answer, a time limit, recovery, and a broken program. Needs Chromium; set `CHROMIUM_PATH` or run `npx playwright install chromium` |
 | `npm run build:java` | Rebuild `public/java-harness.jar` from `java/loopback/` |
-| `npm run build:go` | Rebuild the yaegi wasm runtime from `go/` |
+| `npm run build:go` | Rebuild the Go runtime from `go/` into `prebuilt/yaegi.wasm.gz`. That file is committed, because build machines (Vercel's included) have no Go toolchain; commit it again after changing `go/main.go` |
 
 ```
 src/main.ts               editor, tests panel, verdicts, share, autosave
@@ -90,9 +90,13 @@ SPIKE.md                  measurements and rejected options
 
 `dist/` is a static folder (about 76MB, largest file 22MB) that needs no special headers and no server.
 
-- **Cloudflare Pages** (recommended): free, unlimited bandwidth, edge locations in India. Build command `npm run build`, output directory `dist`, Node 22+. Its build image needs Go for the Go runtime; without it every other language still works.
+- **Vercel** (what it runs on): import the Vite app as a single project, build command `npm run build`, output directory `dist`. Its importer offers to treat `go/` as a separate Go service: don't, there is no backend. The free Hobby plan is non-commercial only.
+- **Cloudflare Pages**: free with unlimited bandwidth and edge locations in India. Same build command and output directory.
 - **GitHub Pages**: works under a `/loopback/` path. Soft limit of 100GB a month.
-- **Vercel / Netlify**: same settings; Vercel's free plan is non-commercial only.
+
+No build machine needs Go, Java or a JDK: the Go runtime and the Java harness are committed prebuilt.
+
+Page views are counted with [Vercel Web Analytics](https://vercel.com/docs/analytics) (`inject()` in `src/main.ts`), which also has to be switched on for the project in Vercel. It records page views only; code and test data stay in the tab.
 
 Large toolchain files are stored gzipped and inflated in the browser, which keeps every file under limits like Cloudflare's 25MB.
 

@@ -11,7 +11,11 @@ export const wasiFiles = (files: Record<string, string>): WASIFS =>
 // skips inflating when the host already decoded it (the bytes wouldn't start with the gzip magic number).
 export async function fetchWasm(url: string): Promise<WebAssembly.Module> {
   const res = await fetch(url + '.gz')
-  if (!res.ok || !res.body) return WebAssembly.compileStreaming(fetch(url))
+  if (!res.ok || !res.body) {
+    const plain = await fetch(url)
+    if (!plain.ok) throw new Error(`This language's runtime is missing from the site (${new URL(url).pathname} returned ${plain.status}).`)
+    return WebAssembly.compileStreaming(Promise.resolve(plain))
+  }
   const [probe, body] = res.body.tee()
   const reader = probe.getReader()
   const { value } = await reader.read()

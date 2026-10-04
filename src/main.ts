@@ -15,6 +15,7 @@ import { ruby } from '@codemirror/legacy-modes/mode/ruby'
 import { prepare, type Lang, type Prepared, type RunResult } from './run.ts'
 import { onCompilerDownload } from './runners/cpp.ts'
 import { decodeShare, encodeShare, normalize, sameOutput, type Verdict } from './judge.ts'
+import { inject } from '@vercel/analytics'
 
 type Test = { input: string; expected: string }
 type Outcome = { verdict: Verdict | 'ran' | 'running'; result?: RunResult }
@@ -114,6 +115,17 @@ let outcomes: (Outcome | undefined)[] = []
 let cache: { key: string; prepared: Prepared } | undefined
 let busy = false
 const started = new Set<Lang>()
+
+// Registered early, and awaited before the first run so the toolchains are cached for offline use.
+const serviceWorkerReady: Promise<unknown> =
+  import.meta.env.PROD && 'serviceWorker' in navigator
+    ? Promise.race([
+        navigator.serviceWorker.register('sw.js')
+          .then(() => navigator.serviceWorker.ready)
+          .then(() => navigator.serviceWorker.controller ?? new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true }))),
+        new Promise((r) => setTimeout(r, 4000)), // never let a stuck worker block running code
+      ])
+    : Promise.resolve()
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T
 const statusEl = $('#status')
@@ -283,6 +295,9 @@ async function runTests(indices = tests.map((_, i) => i)) {
     const key = runLang + '\0' + source
     let prepared = cache?.key === key ? cache.prepared : undefined
     if (!prepared) {
+      // On a first visit the service worker may not control the page yet; toolchains fetched before it does
+      // never reach the cache, and offline would then be broken until the next visit.
+      await serviceWorkerReady
       setStatus(started.has(runLang) || runLang === 'js' ? `Compiling ${NAMES[runLang]}...`
         : `Starting ${NAMES[runLang]} for the first time. This downloads its toolchain once.`)
       const t0 = performance.now()
@@ -360,4 +375,5 @@ if (shared && shared.lang in NAMES) {
 }
 setLang(lang)
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js')
+// Page views only; no code or test data leaves the tab. Enable Web Analytics on the Vercel project to collect it.
+inject()

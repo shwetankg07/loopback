@@ -31,12 +31,15 @@ fetch_gz() { # url destination
 fetch_gz "$WLR/ruby%2F3.2.2%2B20230714-11be424/ruby-3.2.2.wasm" $V/ruby/ruby.wasm
 fetch_gz "$WLR/php%2F8.2.6%2B20230714-11be424/php-cgi-8.2.6.wasm" $V/php/php-cgi.wasm
 
-# Go: the yaegi interpreter, built here (needs a Go toolchain; only when it isn't built yet)
+# Go: the yaegi interpreter. Committed prebuilt because build machines (Vercel's, for one) have no Go.
+# Rebuild it with `npm run build:go` after changing go/main.go, and commit prebuilt/yaegi.wasm.gz.
 if [ ! -f $V/go/yaegi.wasm.gz ]; then
-  if command -v go >/dev/null; then
+  if [ -f prebuilt/yaegi.wasm.gz ]; then
+    cp prebuilt/yaegi.wasm.gz $V/go/
+  elif command -v go >/dev/null; then
     (cd go && GOOS=wasip1 GOARCH=wasm go build -ldflags="-s -w" -o "../$V/go/yaegi.wasm" .)
     gzip -9f $V/go/yaegi.wasm
   else
-    echo "vendor: no Go toolchain, skipping Go (install Go and rerun to enable it)" >&2
+    echo "vendor: no prebuilt Go runtime and no Go toolchain, skipping Go" >&2
   fi
 fi
